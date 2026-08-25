@@ -16,8 +16,8 @@ jobs:
       matrix:
         include:
           - model: "SM-A057F"
-            csc: "XID"
-            omc: "OLE"
+            csc: "XXV"
+            omc: "OLM"
             imei: 357533641234561
           - model: "SM-A057G"
             csc: "EUX"

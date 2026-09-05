@@ -105,6 +105,14 @@ HEX_PATCH "system/bin/recovery" "f3031f2a950200b9c6ffff17" "33008052950200b9c6ff
 
 HEX_PATCH "system/bin/recovery" "c2f90394e0031f2a" "c2f9039420008052"
 
+# "Reboot to bootloader" reboots to download mode
+# FILE: system/bin/recovery
+
+# From: "bootloader"
+# To: "download"
+
+HEX_PATCH "system/bin/recovery" "626f6f746c6f6164657200" "646f776e6c6f6164000000"
+
 # ADB always root
 # FILE: system/bin/adbd
 

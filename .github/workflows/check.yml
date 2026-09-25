@@ -2,8 +2,6 @@ name: Check firmware update
 
 on:
   workflow_dispatch:
-  schedule:
-    - cron: "0 12 * * *"
   push:
 
 jobs:
@@ -14,26 +12,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - model: "SM-A057F"
-            csc: "XXV"
-            omc: "OLM"
-            imei: 357533641234561
-          - model: "SM-A057G"
-            csc: "EUX"
-            omc: "OXM"
-            imei: 352318720492768
-          - model: "SM-A057M"
-            csc: "MXO"
+          - model: "SM-A185G"
+            csc: "GTO"
             omc: "OWO"
-            imei: 354494164167907
-          - model: "SM-E145F"
-            csc: "INS"
-            omc: "ODM"
-            imei: 352300131083980
-          - model: "SM-M145F"
-            csc: "INS"
-            omc: "ODM"
-            imei: 351317280039457
 
     steps:
       - name: Checkout repo
@@ -41,10 +22,17 @@ jobs:
         with:
           submodules: true
 
+      - name: Install asgard
+        run: |
+          python3 -m venv py_env
+          source py_env/bin/activate
+          pip3 install asgard-fus
+          deactivate
+
       - name: Compare latest version with current version
         run: |
           need_update=0
-          latest=`curl --retry 5 --retry-delay 5 -A "samsung ${{ matrix.model }} SyncML DM Client" http://fota-cloud-dn.ospserver.net/firmware/${{ matrix.csc }}/${{ matrix.model }}/version.xml | grep latest | sed 's/^[^>]*>//' | sed 's/<.*//'`
+          latest=`asgard checkupdate ${{ matrix.model }} ${{ matrix.csc }}`
           latest_short=`echo $latest | cut -d'/' -f1`
           latest_csc=`echo $latest | cut -d'/' -f2`
           latest_modem=`echo $latest | cut -d'/' -f3`
@@ -64,20 +52,12 @@ jobs:
           sudo wget -O /usr/bin/samfirm https://github.com/DavidArsene/samfirm.js/releases/download/v0.3.0/samfirm.js && sudo chmod +x /usr/bin/samfirm
           sudo modprobe erofs f2fs
 
-      - name: Install samloader
-        if: env.need_update == 1
-        run: |
-          python3 -m venv py_env
-          source py_env/bin/activate
-          pip3 install git+https://github.com/ananjaser1211/samloader.git
-          deactivate
-
       - name: Fetch firmware
         if: env.need_update == 1
         run: |
           source py_env/bin/activate
           mkdir "${{ matrix.model }}_${{ matrix.csc }}"
-          samloader -m ${{ matrix.model }} -r ${{ matrix.csc }} -i ${{ matrix.imei }} download -O "${{ matrix.model }}_${{ matrix.csc }}"
+          asgard download ${{ matrix.model }} ${{ matrix.csc }} --decrypt -o "${{ matrix.model }}_${{ matrix.csc }}"
           cd "${{ matrix.model }}_${{ matrix.csc }}"
           unzip "*.zip"
           rm -rvf "*.zip"
@@ -200,68 +180,17 @@ jobs:
           lz4 -d recovery.img.lz4 recovery.img
           rm recovery.img.lz4
 
-      - name: Generate patched recovery
-        if: env.need_update == 1
-        run: |
-          export PATH=$PATH:$(pwd)/tools/bin
-          cp recovery.img patched_recovery.img
-          PATH=$PATH:$(pwd)/tools/bin bash tools/bin/recovery_patch.sh patched_recovery.img
-          FILE_NAME="${{ env.latest_shortversion }}_patched_recovery"
-          lz4 -B6 --content-size -q "patched_recovery.img" "recovery.img.lz4"
-          tar cvf "$FILE_NAME.tar" recovery.img.lz4
-          CHECKSUM="$(md5sum "$FILE_NAME.tar" | cut -d " " -f 1 | sed 's/ //')"
-          echo -n "$CHECKSUM" >> "$FILE_NAME.tar" \
-            && echo "  $FILE_NAME.tar" >> "$FILE_NAME.tar" \
-            && mv "$FILE_NAME.tar" "$FILE_NAME.tar.md5"
-
       - name: Prepare BL for release
         if: env.need_update == 1
         run: |
           tar vf ${{ env.bl_tar }} --delete vbmeta.img.lz4
           md5sum ${{ env.bl_tar }} | sed "s/  .*\//  /;s/\.md5$//" >> ${{ env.bl_tar }}
 
-      - name: Update current version
-        if: env.need_update == 1
-        run: |
-          git config --local user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git config --local user.name "github-actions[bot]"
-          git pull origin ${{github.ref}} --ff-only
-          echo ${{ env.latest_version }} > current.${{ matrix.model }}_${{ matrix.omc }}
-          git add current.${{ matrix.model }}_${{ matrix.omc }}
-          git commit -m "${{ matrix.model }}: ${{ env.latest_version }}"
-          git tag "${{ env.latest_shortversion }}_${{ matrix.omc }}"
-
-      - name: Push changes to repo
-        if: env.need_update == 1
-        uses: ad-m/github-push-action@master
-        with:
-          tags: true
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Upload release assets
         if: env.need_update == 1
-        uses: softprops/action-gh-release@v3
+        uses: actions/upload-artifact@v7
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          body_path: versions.txt
-          tag_name: "${{ env.latest_shortversion }}_${{ matrix.omc }}"
           name: "${{ env.latest_shortversion }} - ${{ matrix.model }} - ${{ matrix.omc }}"
-          files: |
-            ${{ env.bl_tar }}
-            ${{ env.cp_tar }}
-            ${{ env.home_csc_tar }}
-            ${{ env.latest_shortversion }}_kernel.tar
-            ${{ env.pit_file }}
-            ${{ env.latest_shortversion }}_patched_vbmeta.tar.md5
-            ${{ env.latest_shortversion }}_vendor.zip
-            ${{ env.latest_shortversion }}_vendor_dlkm.zip
-            ${{ env.latest_shortversion }}_system_dlkm.zip
-            ${{ env.latest_shortversion }}_odm.zip
-            boot.img
-            vendor_boot.img
-            init_boot.img
-            dtbo.img
-            recovery.img
-            lpdump
-            ${{ env.latest_shortversion }}_patched_recovery.tar.md5
+          path: ${{ env.latest_shortversion }}_vendor.zip

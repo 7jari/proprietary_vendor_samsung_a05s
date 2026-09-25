@@ -32,7 +32,9 @@ jobs:
       - name: Compare latest version with current version
         run: |
           need_update=0
+          source py_env/bin/activate
           latest=`asgard checkupdate ${{ matrix.model }} ${{ matrix.csc }}`
+          deactivate
           latest_short=`echo $latest | cut -d'/' -f1`
           latest_csc=`echo $latest | cut -d'/' -f2`
           latest_modem=`echo $latest | cut -d'/' -f3`
